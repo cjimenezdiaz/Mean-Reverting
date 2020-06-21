@@ -2,49 +2,13 @@
 rm(list=setdiff(ls(), ""))
 dev.off()
 
-# Funcion Multiplot
-multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
-  library(grid)
-  
-  # Make a list from the ... arguments and plotlist
-  plots <- c(list(...), plotlist)
-  
-  numPlots = length(plots)
-  
-  # If layout is NULL, then use 'cols' to determine layout
-  if (is.null(layout)) {
-    # Make the panel
-    # ncol: Number of columns of plots
-    # nrow: Number of rows needed, calculated from # of cols
-    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
-                     ncol = cols, nrow = ceiling(numPlots/cols))
-  }
-  
-  if (numPlots==1) {
-    print(plots[[1]])
-    
-  } else {
-    # Set up the page
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
-    
-    # Make each plot, in the correct location
-    for (i in 1:numPlots) {
-      # Get the i,j matrix positions of the regions that contain this subplot
-      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
-      
-      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
-                                      layout.pos.col = matchidx$col))
-    }
-  }
-}
-
 # Libraries
 if (!require("tidyquant")) install.packages("tidyquant"); library(tidyquant)
 if (!require("dplyr")) install.packages("dplyr"); library(dplyr)
 if (!require("ggplot2")) install.packages("ggplot2"); library(ggplot2)
 if (!require("TTR")) install.packages("TTR"); library(TTR)
 if (!require("lubridate")) install.packages("lubridate"); library(lubridate)
+if (!require("gridExtra")) install.packages("gridExtra"); library(gridExtra)
 
 # Variables
 Periodos  <- 5 # SMA period
@@ -68,35 +32,36 @@ dataset.Strategy <- dataset.Precios %>%
          Lower_Band = BBands_data$dn) %>%
   na.omit() 
 
-  # Signal (Buy or Sell)
-  dataset.Strategy$Signal <- 0
-  for(i in 1:nrow(dataset.Strategy)){
-    
-    if(dataset.Strategy$close[i] > dataset.Strategy$Upper_Band[i] && i < nrow(dataset.Strategy)){
+# Signal (Buy or Sell)
+dataset.Strategy$Signal <- 0
+for(i in 1:nrow(dataset.Strategy)){
+  
+  if(dataset.Strategy$close[i] > dataset.Strategy$Upper_Band[i] && i < nrow(dataset.Strategy)){
+    dataset.Strategy$Signal[i] <- -1
+    i = i + 1
+    while(dataset.Strategy$close[i] > dataset.Strategy$SMA_Close[i] && i < nrow(dataset.Strategy)){
       dataset.Strategy$Signal[i] <- -1
-      i = i + 1
-      while(dataset.Strategy$close[i] > dataset.Strategy$SMA_Close[i] && i < nrow(dataset.Strategy)){
-        dataset.Strategy$Signal[i] <- -1
-        i = i + 1        
-      }
-    }
-    
-    if(dataset.Strategy$close[i] < dataset.Strategy$Lower_Band[i] && i < nrow(dataset.Strategy)){
-      dataset.Strategy$Signal[i] <- 1
-      i = i + 1
-      while(dataset.Strategy$close[i] < dataset.Strategy$SMA_Close[i] && i < nrow(dataset.Strategy)){
-        dataset.Strategy$Signal[i] <- 1
-        i = i + 1        
-      }
+      i = i + 1        
     }
   }
+  
+  if(dataset.Strategy$close[i] < dataset.Strategy$Lower_Band[i] && i < nrow(dataset.Strategy)){
+    dataset.Strategy$Signal[i] <- 1
+    i = i + 1
+    while(dataset.Strategy$close[i] < dataset.Strategy$SMA_Close[i] && i < nrow(dataset.Strategy)){
+      dataset.Strategy$Signal[i] <- 1
+      i = i + 1        
+    }
+  }
+}
 
 # Acum Return and Drawdown calculation
 dataset.Strategy <- dataset.Strategy %>%
-  mutate(Strategy_Return = Return*lag(Signal, n = 1)) %>%
+  mutate(Strategy_Return = lead(Return, n = 1)*Signal) %>%
   na.omit() %>%
   mutate(Acum_Return = cumsum(Strategy_Return),
-         Drawdown = (Acum_Return + 1) / cummax(Acum_Return + 1) - 1)
+         Drawdown = (Acum_Return + 1) / cummax(Acum_Return + 1) - 1) %>%
+  na.omit()
 
 # Statistical Analysis
 DDBB_Statistic <- dataset.Strategy %>%
@@ -124,10 +89,9 @@ d <- dataset.Strategy %>%
   theme_gray() +
   labs(title = "",
        subtitle = "",
-       caption = paste("CAGR: ", round(DDBB_Statistic[1,1]*100, digits = 2), "% - MaxDD: ", round(min(dataset.Strategy$Drawdown)*100, digits = 2), "% - Sharpe: ", round(DDBB_Statistic[3,1], digits = 3), sep = ""),
+       caption = paste("CAGR: ", round(DDBB_Statistic[1,1]*100, digits = 2), "% - MaxDD: ", round(min(dataset.Strategy$Drawdown)*100, digits = 2), "% - Sharpe: ", round(DDBB_Statistic[3,1], digits = 3), "\nBy: Carlos Jimenez",sep = ""),
        x = "Dates",
        y = "Drawdown") +
   scale_y_continuous(labels = scales::percent)
 
-multiplot(p, d, cols = 1)
-
+grid.arrange(p, d, nrow = 2)
